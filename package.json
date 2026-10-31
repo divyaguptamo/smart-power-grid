@@ -1,0 +1,22 @@
+{
+  "name": "smart-power-grid",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart Power Grid Management and Energy Resource Allocation - DBMS Level 3 Project",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "seed:mongo": "node --env-file=.env.local scripts/seed-mongo.mjs",
+    "hash": "node scripts/hash-password.mjs"
+  },
+  "dependencies": {
+    "bcryptjs": "2.4.3",
+    "jose": "5.9.6",
+    "mongodb": "6.10.0",
+    "mysql2": "3.11.4",
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
