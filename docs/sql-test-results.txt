@@ -1,0 +1,173 @@
+--------------
+INSERT INTO `USER` (name, email, password_hash, role, phone)
+VALUES ('Test User', 'test@gmail.com', 'password123', 'CONSUMER', '9876500000')
+--------------
+
+ERROR 3819 (HY000) at line 10: Check constraint 'chk_user_password_bcrypt' is violated.
+--------------
+INSERT INTO `USER` (name, email, password_hash, role, phone)
+VALUES ('Test User', 'not-an-email', '$2a$10$Turw3KECx3QkGYxukhuCOeMNZR0YKMeQK830b54qZzd9/6VlmNvNC', 'CONSUMER', '9876500000')
+--------------
+
+ERROR 3819 (HY000) at line 14: Check constraint 'chk_user_email' is violated.
+--------------
+INSERT INTO `USER` (name, email, password_hash, role, phone)
+VALUES ('Duplicate', 'rahul@gmail.com', '$2a$10$Turw3KECx3QkGYxukhuCOeMNZR0YKMeQK830b54qZzd9/6VlmNvNC', 'CONSUMER', '9876500001')
+--------------
+
+ERROR 1062 (23000) at line 18: Duplicate entry 'rahul@gmail.com' for key 'USER.email'
+--------------
+UPDATE POWER_PLANT SET current_generation_mw = 999 WHERE plant_id = 1
+--------------
+
+ERROR 3819 (HY000) at line 22: Check constraint 'chk_plant_generation' is violated.
+--------------
+INSERT INTO ENERGY_ALLOCATION (plant_id, zone_id, allocated_power_mw, priority_level)
+VALUES (1, 99, 10, 2)
+--------------
+
+ERROR 1452 (23000) at line 25: Cannot add or update a child row: a foreign key constraint fails (`smart_power_grid`.`ENERGY_ALLOCATION`, CONSTRAINT `fk_allocation_zone` FOREIGN KEY (`zone_id`) REFERENCES `GRID_ZONE` (`zone_id`))
+--------------
+INSERT INTO ENERGY_ALLOCATION (plant_id, zone_id, allocated_power_mw, priority_level)
+VALUES (2, 1, 500, 2)
+--------------
+
+ERROR 1644 (45000) at line 29: Allocation rejected: exceeds plant capacity
+--------------
+CALL sp_allocate_power(4, 4, 25, 5, 2, 'Test overload', @id)
+--------------
+
+ERROR 1644 (45000) at line 33: Allocation would exceed the zone's maximum capacity
+--------------
+CALL sp_allocate_power(4, 4, 5, 5, 2, 'Extra ICU backup load', @id)
+--------------
+
+--------------
+SELECT @id AS new_allocation_id
+--------------
+
+new_allocation_id
+6
+--------------
+SELECT zone_name, allocated_power_mw, status FROM GRID_ZONE WHERE zone_id = 4
+--------------
+
+zone_name	allocated_power_mw	status
+City Hospital Zone	75.00	HIGH_DEMAND
+--------------
+SELECT * FROM ALLOCATION_LOG WHERE allocation_id = @id
+--------------
+
+log_id	allocation_id	changed_by	old_power_mw	new_power_mw	changed_at	reason
+5	6	2	NULL	5.00	2026-10-31 17:45:43	New allocation. Extra ICU backup load
+--------------
+CALL sp_update_allocation_power(@id, 8, 5, 'Hospital requested more backup')
+--------------
+
+--------------
+SELECT allocation_id, changed_by, old_power_mw, new_power_mw, reason
+FROM ALLOCATION_LOG WHERE allocation_id = @id ORDER BY log_id
+--------------
+
+allocation_id	changed_by	old_power_mw	new_power_mw	reason
+6	2	NULL	5.00	New allocation. Extra ICU backup load
+6	5	5.00	8.00	Hospital requested more backup
+--------------
+UPDATE ENERGY_ALLOCATION SET status = 'PENDING' WHERE allocation_id = 1
+--------------
+
+ERROR 1644 (45000) at line 47: Invalid status change: allocations can only move forward
+--------------
+INSERT INTO OUTAGE (zone_id, reported_by, start_time, reason, severity, status)
+VALUES (2, 4, NOW(), 'Feeder trip near MG Road', 'MEDIUM', 'ACTIVE')
+--------------
+
+--------------
+SELECT zone_id, status FROM GRID_ZONE WHERE zone_id = 2
+--------------
+
+zone_id	status
+2	OUTAGE
+--------------
+SET @oid = (SELECT MAX(outage_id) FROM OUTAGE WHERE zone_id = 2)
+--------------
+
+--------------
+CALL sp_resolve_outage(@oid)
+--------------
+
+--------------
+SELECT outage_id, status, end_time FROM OUTAGE WHERE outage_id = @oid
+--------------
+
+outage_id	status	end_time
+4	RESOLVED	2026-10-31 17:45:43
+--------------
+SELECT zone_id, status FROM GRID_ZONE WHERE zone_id = 2
+--------------
+
+zone_id	status
+2	HIGH_DEMAND
+--------------
+CALL sp_resolve_outage(@oid)
+--------------
+
+ERROR 1644 (45000) at line 61: Outage not found or already resolved
+--------------
+CALL sp_register_consumer('Bad Phone', 'badphone@gmail.com',
+  '$2a$10$Turw3KECx3QkGYxukhuCOeMNZR0YKMeQK830b54qZzd9/6VlmNvNC',
+  '12345', 'RESIDENTIAL', 'Jayanagar, Bangalore', 1, @uid)
+--------------
+
+ERROR 3819 (HY000) at line 64: Check constraint 'chk_user_phone' is violated.
+--------------
+SELECT COUNT(*) AS should_be_zero FROM `USER` WHERE email = 'badphone@gmail.com'
+--------------
+
+should_be_zero
+0
+--------------
+CALL sp_register_consumer('Ananya Iyer', 'ananya@gmail.com',
+  '$2a$10$Turw3KECx3QkGYxukhuCOeMNZR0YKMeQK830b54qZzd9/6VlmNvNC',
+  '9876543215', 'RESIDENTIAL', 'Jayanagar, Bangalore', 1, @uid)
+--------------
+
+--------------
+SELECT * FROM vw_consumer_meters WHERE user_id = @uid
+--------------
+
+meter_id	meter_type	meter_status	installation_date	consumer_id	consumer_type	address	user_id	consumer_name	email	zone_id	zone_name	zone_status
+3	SMART	ACTIVE	2026-10-31	3	RESIDENTIAL	Jayanagar, Bangalore	7	Ananya Iyer	ananya@gmail.com	1	North Residential Zone	HIGH_DEMAND
+--------------
+INSERT INTO MAINTENANCE (plant_id, resource_id, maintenance_type, scheduled_date, performed_by)
+VALUES (1, 1, 'ROUTINE', '2026-11-10', 2)
+--------------
+
+ERROR 3819 (HY000) at line 76: Check constraint 'chk_maintenance_target' is violated.
+--------------
+UPDATE MAINTENANCE SET status = 'IN_PROGRESS' WHERE maintenance_id = 1
+--------------
+
+--------------
+SELECT plant_id, status FROM POWER_PLANT WHERE plant_id = 1
+--------------
+
+plant_id	status
+1	MAINTENANCE
+--------------
+UPDATE MAINTENANCE SET status = 'COMPLETED', completion_date = '2026-10-02' WHERE maintenance_id = 1
+--------------
+
+--------------
+SELECT plant_id, status FROM POWER_PLANT WHERE plant_id = 1
+--------------
+
+plant_id	status
+1	ACTIVE
+--------------
+SELECT resource_name, location FROM ENERGY_RESOURCE
+WHERE MATCH(resource_name, location) AGAINST('generator' IN NATURAL LANGUAGE MODE)
+--------------
+
+resource_name	location
+Backup Generator B	Central Zone
