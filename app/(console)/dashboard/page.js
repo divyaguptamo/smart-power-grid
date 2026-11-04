@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { ErrorNotice, Meter, PageHead, Tag, fmtNum, fmtTime, label, mw, useApi } from '@/components/ui';
+import { ErrorNotice, PageHead, Tag, fmtNum, fmtTime, label, mw, useApi } from '@/components/ui';
+import { CountUp, LiveClock, LoadTrend, ThermalUnit, ZoneHeat } from '@/components/DashWidgets';
 
 function Busbar({ z }) {
   const cap = Number(z.max_capacity_mw);
@@ -29,28 +30,105 @@ function Busbar({ z }) {
   );
 }
 
+function PlantCard({ p }) {
+  const u = Math.min(100, Number(p.utilization_pct) || 0);
+  const warm = /thermal/i.test(String(p.plant_type));
+  const idle = String(p.status).toUpperCase() !== 'ACTIVE';
+  return (
+    <div className={`plant-card${warm ? ' warm' : ''}${idle ? ' idle' : ''}`}>
+      <div className="ring-wrap">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="26" className="ring-bg" />
+          <circle cx="32" cy="32" r="26" pathLength="100" className="ring-fg" style={{ strokeDasharray: `${u} 100` }} transform="rotate(-90 32 32)" />
+        </svg>
+        <b>{fmtNum(u, 0)}%</b>
+      </div>
+      <div className="pc-body">
+        <div className="pc-name">{p.plant_name}</div>
+        <div className="pc-sub">{label(p.plant_type)}, {p.location}</div>
+        <div className="pc-row"><Tag value={p.status} /><span>{mw(p.headroom_mw)} uncommitted</span></div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data, error } = useApi('/api/dashboard');
   const t = data?.totals;
+  const gen = Number(t?.generation_mw) || 0;
+  const dem = Number(t?.demand_mw) || 0;
+  const res = Number(t?.reserve_mw) || 0;
+  const outs = Number(t?.active_outages) || 0;
+  const pend = Number(t?.pending_allocations) || 0;
+  const thermal = data?.plants?.find((p) => /thermal/i.test(String(p.plant_type))) || data?.plants?.[0];
+
   return (
     <>
-      <PageHead title="Control room" intro="Live balance of generation, allocation and demand across the grid." />
+      <div className="dash-top">
+        <PageHead title="Control room" intro="Live balance of generation, allocation and demand across the grid." />
+        <LiveClock />
+      </div>
       <ErrorNotice error={error} />
+
       {t && (
-        <div className="figures">
-          <div className="figure"><div className="v">{fmtNum(t.generation_mw, 0)}<small>MW</small></div><div className="l">Generating now</div></div>
-          <div className="figure"><div className="v">{fmtNum(t.demand_mw, 0)}<small>MW</small></div><div className="l">Zone demand</div></div>
-          <div className="figure"><div className="v">{fmtNum(t.reserve_mw, 0)}<small>MW</small></div><div className="l">Backup ready</div></div>
-          <div className={`figure ${t.active_outages ? 'bad' : ''}`}><div className="v">{t.active_outages}</div><div className="l">Active outages</div></div>
-          <div className={`figure ${t.pending_allocations ? 'warn' : ''}`}><div className="v">{t.pending_allocations}</div><div className="l">Allocations awaiting approval</div></div>
+        <div className="kpis">
+          <div className="kpi k-gen">
+            <div className="kl">Generating now</div>
+            <div className="kv"><CountUp value={gen} /><small>MW</small></div>
+            <div className="ks">{gen ? Math.round((dem / gen) * 100) : 0}% of it is demanded</div>
+            <div className="kbar"><i style={{ width: `${gen + res ? Math.min(100, (gen / (gen + res)) * 100) : 0}%` }} /></div>
+          </div>
+          <div className="kpi k-dem">
+            <div className="kl">Zone demand</div>
+            <div className="kv"><CountUp value={dem} /><small>MW</small></div>
+            <div className="ks">Measured across all zones</div>
+            <div className="kbar"><i style={{ width: `${gen ? Math.min(100, (dem / gen) * 100) : 0}%` }} /></div>
+          </div>
+          <div className="kpi k-res">
+            <div className="kl">Backup ready</div>
+            <div className="kv"><CountUp value={res} /><small>MW</small></div>
+            <div className="ks">Reserve resources available</div>
+            <div className="kbar"><i style={{ width: `${gen + res ? Math.min(100, (res / (gen + res)) * 100) : 0}%` }} /></div>
+          </div>
+          <Link href="/outages" className={`kpi k-out${outs ? ' alert' : ''}`}>
+            <div className="kl">Active outages</div>
+            <div className="kv"><CountUp value={outs} /></div>
+            <div className="ks">{outs ? 'Zones affected right now' : 'All zones healthy'}</div>
+            <div className="kbar"><i style={{ width: `${Math.min(100, outs * 25)}%` }} /></div>
+          </Link>
+          <Link href="/allocations" className="kpi k-pen">
+            <div className="kl">Awaiting approval</div>
+            <div className="kv"><CountUp value={pend} /></div>
+            <div className="ks">Allocations pending</div>
+            <div className="kbar"><i style={{ width: `${Math.min(100, pend * 25)}%` }} /></div>
+          </Link>
         </div>
       )}
 
       {data && (
         <>
+          <div className="dash-row">
+            <section className="panel">
+              <h2>Zone heat map</h2>
+              <p className="sub">Tile colour shows how much of each zone&rsquo;s capacity is allocated: green is light, red is near the limit.</p>
+              <ZoneHeat zones={data.zones} />
+            </section>
+            <section className="panel">
+              <h2>Generation and demand</h2>
+              <p className="sub">Rolling live view around the current figures.</p>
+              <LoadTrend gen={gen} demand={dem} />
+            </section>
+          </div>
+
+          {thermal && (
+            <section className="panel" style={{ marginBottom: 18 }}>
+              <ThermalUnit plant={thermal} />
+            </section>
+          )}
+
           <section className="panel">
             <h2>Zone supply</h2>
-            <p className="sub">Each rail is the zone&rsquo;s capacity. Blue is power allocated; the black tick is measured demand.</p>
+            <p className="sub">Each rail is the zone&rsquo;s capacity. Blue is power allocated; the tick is measured demand.</p>
             <div className="busbars">{data.zones.map((z) => <Busbar key={z.zone_id} z={z} />)}</div>
             <div className="legend">
               <span><i style={{ background: 'var(--blue)' }} />Allocated</span>
@@ -59,24 +137,22 @@ export default function Dashboard() {
             </div>
           </section>
 
+          <section className="panel" style={{ marginTop: 18 }}>
+            <h2>Power plants</h2>
+            <div className="plants">{data.plants.map((p) => <PlantCard key={p.plant_id} p={p} />)}</div>
+          </section>
+
           <div className="grid-2" style={{ marginTop: 18 }}>
             <section className="panel">
-              <h2>Power plants</h2>
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Plant</th><th>Status</th><th>Utilisation</th><th className="num">Uncommitted</th></tr></thead>
-                  <tbody>
-                    {data.plants.map((p) => (
-                      <tr key={p.plant_id}>
-                        <td>{p.plant_name}<div className="muted">{label(p.plant_type)}, {p.location}</div></td>
-                        <td><Tag value={p.status} /></td>
-                        <td><Meter pct={p.utilization_pct} />{fmtNum(p.utilization_pct)}%</td>
-                        <td className="num">{mw(p.headroom_mw)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <h2>Allocations by status</h2>
+              <table>
+                <thead><tr><th>Status</th><th className="num">Count</th><th className="num">Power</th></tr></thead>
+                <tbody>
+                  {data.allocationStatus.map((s) => (
+                    <tr key={s.status}><td><Tag value={s.status} /></td><td className="num">{s.count}</td><td className="num">{mw(s.total_mw)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
             </section>
             <section className="panel">
               <h2>Unacknowledged grid events</h2>
@@ -101,33 +177,20 @@ export default function Dashboard() {
             </section>
           </div>
 
-          <div className="grid-even" style={{ marginTop: 18 }}>
-            <section className="panel">
-              <h2>Allocations by status</h2>
-              <table>
-                <thead><tr><th>Status</th><th className="num">Count</th><th className="num">Power</th></tr></thead>
-                <tbody>
-                  {data.allocationStatus.map((s) => (
-                    <tr key={s.status}><td><Tag value={s.status} /></td><td className="num">{s.count}</td><td className="num">{mw(s.total_mw)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-            <section className="panel">
-              <h2>Recent allocation changes</h2>
-              <p className="sub">Recorded automatically by the audit trigger.</p>
-              <table><tbody>
-                {data.recentChanges.map((c) => (
-                  <tr key={c.log_id}>
-                    <td>
-                      #{c.allocation_id} {c.zone_name}: {c.old_power_mw === null ? 'created at' : `${fmtNum(c.old_power_mw)} to`} {fmtNum(c.new_power_mw)} MW
-                      <div className="muted">{c.changed_by_name}, {fmtTime(c.changed_at)}{c.reason ? `: ${c.reason}` : ''}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody></table>
-            </section>
-          </div>
+          <section className="panel" style={{ marginTop: 18 }}>
+            <h2>Recent allocation changes</h2>
+            <p className="sub">Recorded automatically by the audit trigger.</p>
+            <table><tbody>
+              {data.recentChanges.map((c) => (
+                <tr key={c.log_id}>
+                  <td>
+                    #{c.allocation_id} {c.zone_name}: {c.old_power_mw === null ? 'created at' : `${fmtNum(c.old_power_mw)} to`} {fmtNum(c.new_power_mw)} MW
+                    <div className="muted">{c.changed_by_name}, {fmtTime(c.changed_at)}{c.reason ? `: ${c.reason}` : ''}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody></table>
+          </section>
         </>
       )}
     </>
